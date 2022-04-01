@@ -24,7 +24,7 @@ from core.utils import *
 from core.cmd_parsing import *
 from core.document import Document
 from core.indexing import InvertedIndex
-from core.querying import handle_vector_query, handle_boolean_query
+from core.querying import handle_vector_query, handle_boolean_query, clear_cache
 
 # static paths
 PATH = osp.dirname(osp.realpath(__file__))
@@ -95,6 +95,10 @@ class App(cmd2.Cmd):
             'path': self.handle_path,
         }[source_type](source)
     complete_index = cmd2.Cmd.path_complete
+
+
+    def do_clear_query_cache(self, _) -> None:
+        clear_cache()
 
 
     def default(self, statement: cmd2.Statement) -> Optional[bool]:

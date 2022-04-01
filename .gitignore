@@ -1,6 +1,6 @@
 .DS_Store
 test_input_docs/
-index.pkl
+index.gz
 
 !.gitkeep
 
