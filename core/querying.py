@@ -10,12 +10,14 @@ from cachetools import cached
 from cachetools.keys import hashkey
 from icecream import ic
 
+from core.indexing import InvertedIndex
+
 def smooth(x, smoothness: float = 1):
     return 2 * (1 / (1 + np.exp(-x / smoothness)) - 0.5)
 
 
 def handle_boolean_query(index, query: str) -> list[tuple[str, float]]:
-    pass
+    raise NotImplementedError
 
 
 def make_query_vector(index, query):
@@ -29,7 +31,7 @@ def make_query_vector(index, query):
     return normalized
 
 
-def is_candidate(index: 'InvertedIndex', query: list[str], doc_name: str) -> bool:
+def is_candidate(index: InvertedIndex, query: list[str], doc_name: str) -> bool:
     for q in query:
         if doc_name in index[q]['locs']: return True
     return False
@@ -37,7 +39,7 @@ def is_candidate(index: 'InvertedIndex', query: list[str], doc_name: str) -> boo
 def cache_filter(_, query: str, *args, **kwargs) -> Tuple[Hashable, ...]: return hashkey(query)
 query_cache = {}
 @cached(cache = query_cache, key = cache_filter)
-def handle_vector_query(index: 'InvertedIndex', query: str, top_k: int = 10) -> list[tuple[str, float]]:
+def handle_vector_query(index: InvertedIndex, query: str, top_k: int = 10) -> list[tuple[str, float]]:
     query_vector = make_query_vector(index, query)
 
     doc_names, doc_vecs = list(zip(*[(doc, vec) for doc, vec in index.doc_name_to_vec.items() if is_candidate(index, query, doc)]))

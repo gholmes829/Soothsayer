@@ -64,7 +64,7 @@ class App(cmd2.Cmd):
         
 
     def handle_url(self, url: str) -> None:
-        pass
+        raise NotImplementedError
 
 
     @cmd2.with_argparser(run_query_parser)
