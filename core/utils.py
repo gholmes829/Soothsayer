@@ -28,4 +28,4 @@ class Timer:
         self._elapsed = time.time() - self._timer
 
     def __float__(self):
-        return self._elapsed
+        return self._elapsed or time.time() - self._timer

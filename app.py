@@ -22,9 +22,10 @@ from icecream import ic
 # custom
 from core.utils import *
 from core.cmd_parsing import *
-from core.document import Document
+from core.sources import Document, WebPage
 from core.indexing import InvertedIndex
 from core.querying import handle_vector_query, handle_boolean_query, clear_cache
+from core.crawling import Spider
 
 # static paths
 PATH = osp.dirname(osp.realpath(__file__))
@@ -39,14 +40,14 @@ class App(cmd2.Cmd):
         self.index = InvertedIndex.load('index.gz') if osp.exists('index.gz') else InvertedIndex()
 
 
-    @cmd2.with_argparser(run_update_index_parser)
-    def do_update_index(self, args: argparse.Namespace) -> None:
+    @cmd2.with_argparser(run_index_parser)
+    def do_index(self, args: argparse.Namespace) -> None:
         source, source_type = args.source
         {
             'url': self.handle_url,
             'path': self.handle_path,
         }[source_type](source)
-    complete_update_index = cmd2.Cmd.path_complete
+    complete_index = cmd2.Cmd.path_complete
 
 
     def handle_path(self, path: str) -> None:
@@ -64,7 +65,21 @@ class App(cmd2.Cmd):
         
 
     def handle_url(self, url: str) -> None:
-        raise NotImplementedError
+        spider = Spider(seeds = {url})
+        spider.crawl(timeout = 10, delay = 1)
+        web_data = {data for data in spider.buffer}
+        spider.clear_buffer()
+
+        with mp.Pool() as p:
+            pages = [doc for doc in tqdm(
+                p.imap_unordered(WebPage, web_data),
+                total = len(web_data),
+                desc = 'Processing pages'
+            )]
+        self.index.update(pages)
+        self.poutput('Saving index...')
+        self.index.save('index.gz')
+        self.poutput('Index saved.')
 
 
     @cmd2.with_argparser(run_query_parser)

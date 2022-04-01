@@ -8,7 +8,7 @@ import numpy as np
 import compress_pickle
 from tqdm import tqdm
 
-from core.document import Document
+from core.sources import Document
 
 
 def index_item_default():

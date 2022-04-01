@@ -13,8 +13,8 @@ def resolve_source(source: str) -> tuple:
     else: raise argparse.ArgumentTypeError('source is not a path or url')
 
 # INDEX
-run_update_index_parser = cmd2.Cmd2ArgumentParser(description = 'evaluate source and update index')
-run_update_index_parser.add_argument(
+run_index_parser = cmd2.Cmd2ArgumentParser(description = 'evaluate source and update index')
+run_index_parser.add_argument(
     'source',
     type = resolve_source,
     help = 'crawlable url or path to *.txt collection',

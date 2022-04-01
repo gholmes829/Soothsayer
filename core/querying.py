@@ -42,17 +42,16 @@ def handle_vector_query(index: InvertedIndex, query: str, top_k: int = 10) -> li
     query_tokens = [term for term in preprocess(query) if term in index]
     query_vector = make_query_vector(index, query_tokens)
     doc_names = [doc for doc in index.doc_name_to_vec if is_candidate(index, query_tokens, doc)]
-    doc_vecs = [index.doc_name_to_vec[doc] for doc in doc_names]
-    doc_matrix = np.array(doc_vecs)
+    doc_matrix = np.array([index.doc_name_to_vec[doc] for doc in doc_names])
     scores = doc_matrix @ query_vector
-    doc_names, scores = list(zip(*list(sorted(
+    score_names, scores = list(zip(*list(sorted(
         [(name, score) for name, score in zip(doc_names, scores)],
         key = (lambda pair: (lambda _, score: score)(*pair)),
         reverse = True,
     ) | where(lambda pair: (lambda _, score: score and not np.isnan(score))(*pair)))))
 
     scaled = smooth(np.array(scores[:top_k]), 0.05)
-    return tuple(zip(doc_names[:top_k], scaled))
+    return tuple(zip(score_names[:top_k], scaled))
 
 def clear_cache():
     query_cache.clear()
