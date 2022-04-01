@@ -5,9 +5,6 @@
 import os
 import psutil
 import time
-from functools import wraps
-import cProfile
-import pstats
 from icecream import ic
 
 
@@ -32,26 +29,3 @@ class Timer:
 
     def __float__(self):
         return self._elapsed
-
-
-def profile(sort_by='cumulative', lines_to_print=None, strip_dirs=False):
-    """Decorator to profile functions."""
-    # TODO fix call signature
-    def inner(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            pr = cProfile.Profile()
-            pr.enable()
-            retval = func(*args, **kwargs)
-            pr.disable()
-
-            ps = pstats.Stats(pr)
-            if strip_dirs: ps.strip_dirs()
-            if isinstance(sort_by, (tuple, list)): ps.sort_stats(*sort_by)
-            else: ps.sort_stats(sort_by)
-            ps.print_stats(lines_to_print)
-
-            return retval
-
-        return wrapper
-    return inner

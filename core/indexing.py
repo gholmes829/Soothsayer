@@ -2,40 +2,76 @@
 
 """
 
-from typing import Any
+from icecream import ic
 from collections import defaultdict
 import numpy as np
+import compress_pickle
 from tqdm import tqdm
 
 from core.document import Document
 
-def compute_idf(df, N): return np.log10(N / df)
 
-def index(collection: set[Document]) -> dict[str, Any]:
-    N = len(collection)
-    index = defaultdict(lambda: {'df': 0, 'tf': 0, 'idx': None, 'idf': None, 'posting': {}})
+def index_item_default():
+    return {'idf': None, 'locs': {}, 'idx': None}
 
-    for doc in tqdm(collection, total = N, desc = 'indexing docs'):
-        for term, stats in doc.token_dist.items():
-            index[term]['df'] += 1
-            index[term]['tf'] += stats['freq']
-            index[term]['posting'][doc.base_name] = stats['freq']
+class InvertedIndex:
+    def __init__(self, documents: set[Document] = None) -> None:
+        self.index = defaultdict(index_item_default)
+        self.vocab_set = set()
+        self.doc_name_to_vec = {}
+        if documents: self.update(documents)
 
-    T = len(index)
-    sorted_terms = sorted(index.keys())
-    for i, term in enumerate(sorted_terms):
-        index[term]['idx'] = i
+    def update(self, documents: set[Document] = None) -> None:
+        assert documents
+        for doc_to_update in documents:
+            self.doc_name_to_vec[doc_to_update.name] = None
+            for term, locs in doc_to_update.index.items():
+                self.vocab_set.add(term)
+                self.index[term]['locs'][doc_to_update.name] = locs
+                self.index[term]['df'] = len(self[term]['locs'])
 
-    for stats in tqdm(index.values(), desc = 'computing idf scores'):
-        stats['idf'] = compute_idf(stats['df'], N)
+        self._compute_idfs()  # compute all idfs since N changed
+        for i, term in enumerate(sorted(list(self.index.keys()))): self.index[term]['idx'] = i
+        self._compute_doc_vecs()
 
-    for doc in tqdm(collection, desc = 'vectorizing docs'):
-        vector = np.zeros(T)
-        for term, stats in doc.token_dist.items():
-            tf_idf = stats['freq'] * index['term']['idf']
-            stats['tf-idf'] = tf_idf
-            vector[index[term]['idx']] = tf_idf
-        magnitude = np.linalg.norm(vector)
-        doc.vector, doc.magnitude = vector / magnitude, magnitude
+    def remove(self, documents: set[Document] = None) -> None:
+        assert documents
+        for doc_to_del in documents:
+            del self.doc_name_to_vec[doc_to_del.name]
+            for term in doc_to_del.index:
+                del self.index[term]['locs'][doc_to_del.name]
+                self.index[term]['df'] -= 1
 
-    return dict(index)
+        self._compute_idfs()  # compute all idfs since N changed
+        for i, term in enumerate(sorted(list(self.index.keys()))): self.index[term]['idx'] = i
+        self.vocab_set = set(self.index.keys())
+        self._compute_doc_vecs()
+
+    def save(self, path: str) -> None:
+        compress_pickle.dump(self, path, compression = 'gzip')
+
+    @staticmethod
+    def load(path: str) -> 'InvertedIndex':
+        return compress_pickle.load(path)
+
+    def _compute_idfs(self) -> None:
+        for term, locs in self.index.items():
+            self.index[term]['idf'] = np.log10(len(self.doc_name_to_vec) / len(locs))
+
+    def _compute_doc_vecs(self) -> None:
+        for target_doc in tqdm(self.doc_name_to_vec, desc = 'Generating source vectors'):
+            vec = np.zeros(len(self))
+            for term in self.vocab_set:
+                try: vec[self.index[term]['idx']] = len(self.index[term]['locs'][target_doc]) * self.index[term]['idf']
+                except KeyError: continue
+            self.doc_name_to_vec[target_doc] = vec / np.linalg.norm(vec)
+                    
+
+    def __len__(self):
+        return len(self.vocab_set)
+
+    def __getitem__(self, key: str) -> dict:
+        return self.index[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.vocab_set

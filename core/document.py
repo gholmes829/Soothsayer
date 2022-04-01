@@ -4,21 +4,22 @@
 
 import os.path as osp
 import time
-from core.preprocessing import preprocess
-from nltk import FreqDist
+import numpy as np
+from collections import defaultdict
 from icecream import ic
+
+from core.preprocess import preprocess
 
 
 class Document:
-    def __init__(self, doc_path: str) -> None:
-        self.path = doc_path
-        self.base_name = osp.splitext(osp.basename(self.path))[0]
-        self.time_stamp = time.time()
-        with open(doc_path, 'r') as f:
-            self.token_dist = {
-                term: {
-                    'freq': freq,
-                    'tf-idf': None
-                } for term, freq in FreqDist(preprocess(f.read())).items()}
-        self.vector = None
-        self.magnitude = None
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self.name = osp.splitext(osp.basename(self.path))[0]
+        self.index_time = time.time()
+        with open(path, 'r') as f:
+            tokens = preprocess(f.read())
+        
+        self.index = defaultdict(list)  # term to locs
+        
+        for i, term in enumerate(tokens):
+            if term: self.index[term].append(i)
