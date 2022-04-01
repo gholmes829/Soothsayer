@@ -80,30 +80,24 @@ class App(cmd2.Cmd):
                 'boolean': handle_boolean_query,
                 'vector':  handle_vector_query
             }[query_type](self.index, query, top_k = top_k or 10)
-
         if not most_relevant: return self.poutput('No good matches.\n')
         for i, (name, score) in enumerate(most_relevant, 1):
             self.poutput(f'{i}) {name}: {round(100 * score, 2)}%')
         self.poutput(f'\nCompleted in {round(float(t), 5)} secs\n')
 
 
-    @cmd2.with_argparser(run_update_index_parser)
-    def do_index(self, args: argparse.Namespace) -> None:
-        source, source_type = args.source
-        {
-            'url': self.handle_url,
-            'path': self.handle_path,
-        }[source_type](source)
-    complete_index = cmd2.Cmd.path_complete
-
-
     def do_clear_query_cache(self, _) -> None:
         clear_cache()
 
 
+    def do_clear_index(self, _) -> None:
+        self.index = InvertedIndex()
+        self.index.save('index.gz')
+
+
     def default(self, statement: cmd2.Statement) -> Optional[bool]:
         """Treats default command as vector space query."""
-        return self.handle_query('vector', statement.raw)
+        self.handle_query('vector', statement.raw)
 
 
     def cleanup(self) -> None:

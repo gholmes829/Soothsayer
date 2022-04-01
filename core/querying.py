@@ -20,8 +20,7 @@ def handle_boolean_query(index, query: str) -> list[tuple[str, float]]:
     raise NotImplementedError
 
 
-def make_query_vector(index, query):
-    query_tokens = [term for term in preprocess(query) if term in index]
+def make_query_vector(index, query_tokens: list[str]) -> np.ndarray:
     query_tf = {term: query_tokens.count(term) for term in set(query_tokens)}
     query_vector = np.zeros(len(index))
     for term in query_tokens: query_vector[index[term]['idx']] = query_tf[term] * index[term]['idf']
@@ -40,12 +39,12 @@ def cache_filter(_, query: str, *args, **kwargs) -> Tuple[Hashable, ...]: return
 query_cache = {}
 @cached(cache = query_cache, key = cache_filter)
 def handle_vector_query(index: InvertedIndex, query: str, top_k: int = 10) -> list[tuple[str, float]]:
-    query_vector = make_query_vector(index, query)
-
-    doc_names, doc_vecs = list(zip(*[(doc, vec) for doc, vec in index.doc_name_to_vec.items() if is_candidate(index, query, doc)]))
+    query_tokens = [term for term in preprocess(query) if term in index]
+    query_vector = make_query_vector(index, query_tokens)
+    doc_names = [doc for doc in index.doc_name_to_vec if is_candidate(index, query_tokens, doc)]
+    doc_vecs = [index.doc_name_to_vec[doc] for doc in doc_names]
     doc_matrix = np.array(doc_vecs)
     scores = doc_matrix @ query_vector
-
     doc_names, scores = list(zip(*list(sorted(
         [(name, score) for name, score in zip(doc_names, scores)],
         key = (lambda pair: (lambda _, score: score)(*pair)),

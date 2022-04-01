@@ -66,12 +66,14 @@ class InvertedIndex:
                 except KeyError: continue
             self.doc_name_to_vec[target_doc] = vec / np.linalg.norm(vec)
                     
-
     def __len__(self):
         return len(self.vocab_set)
 
     def __getitem__(self, key: str) -> dict:
         return self.index[key]
+
+    def __iter__(self):
+        return iter(self.index)
 
     def __contains__(self, key: str) -> bool:
         return key in self.vocab_set
