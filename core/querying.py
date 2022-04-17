@@ -2,11 +2,8 @@
 
 """
 
-# from typing import Hashable, Tuple
 import numpy as np
 from core.preprocess import preprocess
-# from cachetools import cached
-# from cachetools.keys import hashkey
 from icecream import ic
 
 from core.indexing import InvertedIndex
@@ -34,7 +31,6 @@ def is_candidate(index: InvertedIndex, query: list[str], doc_name: str) -> bool:
         if doc_name in index[q]['locs']: return True
     return False
 
-# def cache_filter(_, query: str, *args, **kwargs) -> Tuple[Hashable, ...]: return hashkey(query)
 
 def handle_vector_query(index: InvertedIndex, query: str, top_k: int = 10) -> list[tuple[str, float]]:
     query_tokens = [term for term in preprocess(query) if term in index]

@@ -15,7 +15,7 @@ punc_ptn = re.compile(r'\W', re.ASCII)
 stops = set(stopwords.words('english'))
 
 
-@lru_cache(maxsize=50000)
+@lru_cache(maxsize=2**16)
 def stem(token: str) -> str:
     return stemmer.stem(token)
 

@@ -18,6 +18,7 @@ import multiprocessing as mp
 from threading import Thread
 from queue import Queue, Empty
 from time import sleep
+import tempfile
 
 # debugging
 from icecream import ic
@@ -40,7 +41,7 @@ class App(cmd2.Cmd):
         self.register_postloop_hook(self.cleanup)
         self.prompt = '>> '
         self.continuation_prompt = '... '
-        self.index = InvertedIndex.load('index.gz') if osp.exists('index.gz') else InvertedIndex()
+        self.index = InvertedIndex.load('index.pkl') if osp.exists('index.pkl') else InvertedIndex()
         self.poutput(f'Loaded index with {self.index.num_docs()} docs {self.index.num_terms()} terms.')
 
 
@@ -75,7 +76,7 @@ class App(cmd2.Cmd):
             )]
         self.index.update(docs)
         self.poutput('Saving index...')
-        self.index.save('index.gz')
+        self.index.save('index.pkl')
         self.poutput('Index saved.')
         
 
@@ -86,38 +87,37 @@ class App(cmd2.Cmd):
             data.put((url, content))
             print(f'{time.time()}: with l={latency}, {thread_id()} collected "{url}"')
 
-        tmp_dir = 'crawl_buffer_tmp'
-        os.mkdir(tmp_dir)
-        try:
-            t = Thread(target = lambda: spider.crawl(urls, on_content = on_content, timeout = crawl_duration), daemon = True)
-            t.start()
-            while data.empty(): sleep(0.1)
-            while spider.is_crawling:
-                try:
-                    url, content = data.get(timeout = 1)
-                    try:
-                        with open(osp.join(tmp_dir, encode_b64(url) + '.txt'), 'w') as f:  f.write(content)
-                    except OSError: pass  # TODO file name could be too long
-                except Empty: pass
-            t.join()
-        except KeyboardInterrupt: spider.signal_stop_crawl()
-        while not data.empty():
-            url, content = data.get()
-            with open(osp.join(tmp_dir, encode_b64(url) + '.txt'), 'w') as f:  f.write(content)
         
-        web_pages = set(osp.join(tmp_dir, rel_path) for rel_path in os.listdir(tmp_dir))
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                t = Thread(target = lambda: spider.crawl(urls, on_content = on_content, timeout = crawl_duration), daemon = True)
+                t.start()
+                while data.empty(): sleep(0.1)
+                while spider.is_crawling:
+                    try:
+                        url, content = data.get(timeout = 1)
+                        try:
+                            with open(osp.join(tmp_dir, encode_b64(url) + '.txt'), 'w') as f: f.write(content)
+                        except OSError: pass  # TODO file name could be too long
+                    except Empty: pass
+                t.join()
+            except KeyboardInterrupt: spider.signal_stop_crawl()
 
-        with mp.Pool() as p:
-            pages = [doc for doc in tqdm(
-                p.imap_unordered(WebPage, web_pages),
-                total = len(web_pages),
-                desc = 'Processing pages'
-            )]
+            while not data.empty():
+                url, content = data.get()
+                with open(osp.join(tmp_dir, encode_b64(url) + '.txt'), 'w') as f: f.write(content)
+            
+            web_pages = set(osp.join(tmp_dir, rel_path) for rel_path in os.listdir(tmp_dir))
+
+            with mp.Pool() as p:
+                pages = [doc for doc in tqdm(
+                    p.imap_unordered(WebPage, web_pages),
+                    total = len(web_pages),
+                    desc = 'Processing pages'
+                )]
         self.index.update(pages)
-        assert '.git' not in os.listdir(tmp_dir)
-        os.system(f'rm -r {tmp_dir}')
         self.poutput('Saving index...')
-        self.index.save('index.gz')
+        self.index.save('index.pkl')
         self.poutput('Index saved.')
 
 
@@ -143,7 +143,7 @@ class App(cmd2.Cmd):
     def do_clear_index(self, _) -> None:
         """Clears and overwrites existing index."""
         self.index = InvertedIndex()
-        self.index.save('index.gz')
+        self.index.save('index.pkl')
 
     def default(self, statement: cmd2.Statement) -> Optional[bool]:
         """Treats default command as vector space query."""

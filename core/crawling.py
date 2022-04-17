@@ -9,10 +9,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 from math import ceil
-import numpy as np
 from icecream import ic
 from urllib.parse import urlparse, urljoin
-from urllib.robotparser import RobotFileParser
 import random
 
 from core.utils import *
@@ -36,16 +34,13 @@ class Spider:
         self.num_threads = None
         self.is_crawling = False
 
-        # other
-        self.robot_parser = RobotFileParser()
-
     def crawl(
             self,
             seeds: set[str],
             on_content: Callable[[str, str], None],
             url_priority: Callable[[str], int] = lambda _: 0,
             k_weights: tuple[float] = (1,),
-            timeout: float = float('inf'),
+            timeout: float = None,
         ) -> None:
         self._initialize_crawl(seeds, k_weights, url_priority)
         workers = [self._make_worker(on_content, url_priority, k_weights) for _ in range(self.num_threads)]
@@ -128,12 +123,8 @@ class Spider:
 
 
     def _profile_domain(self, url: str) -> dict:
-        self.robot_parser.set_url(url)
-        self.robot_parser.read()
         return {
-            'crawl_delay': self.robot_parser.crawl_delay('*') or 1,
-            'can_fetch': self.robot_parser.can_fetch('*', url),  # TODO double check this
-            'request_rate': self.robot_parser.request_rate('*')
+            'crawl_delay': 1,  # TODO update with actual robot values
         }
 
 
@@ -202,7 +193,6 @@ class Spider:
         self.frontier_cv = Condition()
         self.num_threads = None
         self.is_crawling = False
-        self.robot_parser.set_url('')
 
 
     @staticmethod
