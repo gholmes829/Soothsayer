@@ -19,8 +19,9 @@ def handle_boolean_query(index: InvertedIndex, query: str) -> list[tuple[str, fl
 def make_doc_vector(index: InvertedIndex, doc_name: str, sorted_query_tokens: list[str]):
     vector = np.zeros(len(sorted_query_tokens))
     for i, token in enumerate(sorted_query_tokens):
+        # if doc_name in index[token]['locs']:
         vector[i] = len(index[token]['locs'][doc_name]) * index[token]['idf']
-
+        # else: vector[i] = 0
     return vector / index.doc_magnitudes[doc_name]
 
 # TODO get word synonyms

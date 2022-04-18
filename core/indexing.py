@@ -7,19 +7,21 @@ from icecream import ic
 from collections import defaultdict
 import multiprocessing as mp
 import numpy as np
-import compress_pickle
+import pickle
 from tqdm import tqdm
+from itertools import repeat
 
 from core.sources import Document
+from core.utils import DefaultDict
 
 
 def index_item_default():
-    return {'idf': None, 'locs': defaultdict(list), 'idx': None}
+    return {'idf': None, 'locs': DefaultDict(list), 'idx': None}
 
 class InvertedIndex:
     def __init__(self) -> None:
         self.index = defaultdict(index_item_default)
-        self.doc_magnitudes = {}
+        self.doc_magnitudes = defaultdict(int)
         # self.doc_name_to_vec = {}
 
     def update(self, gen_doc: Callable, doc_sources: set[str] = None) -> None:
@@ -41,7 +43,9 @@ class InvertedIndex:
             self.index[term]['idf'] = np.log10(len(documents) / len(locs))
 
         for i, term in enumerate(sorted(list(self.index.keys()))): self.index[term]['idx'] = i
+
         self._compute_doc_magnitudes(documents)
+
         # self._compute_doc_vecs()
 
     # def remove(self, documents: set[Document] = None) -> None:
@@ -58,11 +62,13 @@ class InvertedIndex:
     #     self._compute_doc_vecs()
 
     def save(self, path: str) -> None:
-        compress_pickle.dump(self, path, compression = 'gzip', pickler_method = 'dill')
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
 
     @staticmethod
     def load(path: str) -> 'InvertedIndex':
-        return compress_pickle.load(path, compression = 'gzip', pickler_method = 'dill')
+        with open(path, 'rb') as f:
+            return pickle.load(f)
 
     def num_docs(self) -> int:
         return len(self.doc_magnitudes)
@@ -88,25 +94,30 @@ class InvertedIndex:
     #         for doc in tqdm(documents, desc = 'Generating source vectors'):
     #             self.doc_magnitudes[doc.name] = self._compute_doc_magnitude(doc)
 
+    def _compute_doc_magnitude(self, doc_name: str) -> float:
+        magnitude = 0
+        for token in self.index.keys():
+            magnitude += (len(self.index[token]['locs'][doc_name]) * self.index[token]['idf']) ** 2
+        return doc_name, np.sqrt(magnitude)
+
     def _compute_doc_magnitudes(self, new_documents: list[Document]) -> None:
-        # TODO parallelize
         joined_docs = set(self.doc_magnitudes.keys()) | set(doc.name for doc in new_documents)
-        self.doc_magnitudes = {doc_name: 0 for doc_name in joined_docs}
-        with tqdm(total = len(self.index) * len(joined_docs)) as pbar:
-            for token in self.index:
-                for doc_name in joined_docs:
-                    self.doc_magnitudes[doc_name] += (len(self.index[token]['locs'][doc_name]) * self.index[token]['idf']) ** 2
-                    pbar.update()
-        self.doc_magnitudes = {doc_name: np.sqrt(sqrd_sum) for doc_name, sqrd_sum in self.doc_magnitudes.items()}
-        # for doc in tqdm(joined_docs, desc = 'Generating source vectors'):
-        #     self.doc_magnitudes[doc.name] = self._compute_doc_magnitude(doc)
-        
-        # with mp.Pool() as p:
-        #     self.doc_magnitudes = {doc: vec for doc, vec in tqdm(
-        #         p.imap_unordered(self._compute_doc_magnitude, documents, chunksize = 250),
-        #         total = len(documents),
-        #         desc = 'Generating source vectors'
-        #     )}
+        self.doc_magnitudes.clear()
+
+        with mp.Pool() as p:
+            self.doc_magnitudes = {doc: magnitude for doc, magnitude in tqdm(
+                p.imap_unordered(self._compute_doc_magnitude, joined_docs, chunksize = 250),
+                total = len(joined_docs),
+                desc = 'Generating source data'
+            )}
+
+        # for doc_name in tqdm(joined_docs, desc = 'Generating source data'):
+        #     for token in self.index:
+        #         # if doc_name in self.index[token]['locs']:
+        #         self.doc_magnitudes[doc_name] += (len(self.index[token]['locs'][doc_name]) * self.index[token]['idf']) ** 2
+
+        # for doc_name, sqrd_sum in self.doc_magnitudes.items():
+        #     self.doc_magnitudes[doc_name] = np.sqrt(sqrd_sum)
          
     def __len__(self):
         return len(self.index)
