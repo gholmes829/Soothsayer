@@ -3,19 +3,26 @@ TODO could add option to prevent search going to parent of seed path
 """
 
 from threading import Thread, Event, Timer as TimerTrigger, Condition
-from queue import Queue
+from queue import Queue, Empty
 from typing import Any, Callable
 import requests
 from bs4 import BeautifulSoup
+import re
 import time
 from math import ceil
 from icecream import ic
+from time import sleep
 from urllib.parse import urlparse, urljoin
+from uuid import uuid4
+import json
 import random
 
 from core.utils import *
 
 
+url_blacklist = re.compile(r'.*[.](jpg|jpeg|png|mp3|svg|mp4|gif|wav)')
+user_blacklist = re.compile(r'.*[/]users?[/].*')
+action_blacklist = re.compile(r'.*[&]action[=].*')
 
 class Spider:
     def __init__(self):
@@ -52,9 +59,10 @@ class Spider:
         for t in workers: t.join()
         self._reset()
 
-    
+
     def should_crawl(self) -> bool:
         return not self.interrupt.is_set()
+
 
     def signal_stop_crawl(self) -> None:
         self.interrupt.set()
@@ -73,24 +81,23 @@ class Spider:
 
         with Timer() as t:
             while self.should_crawl():
-                ready_time, target_domain = self.ready_queue.get()
+                try: ready_time, target_domain = self.ready_queue.get(timeout=3)
+                except Empty: continue
                 latency = time.time() - ready_time
                 latency_sum += latency
                 target_queue = self.back_queues[target_domain]
-                target_url = target_queue.get()
-                
+                target_url = target_queue.get(timeout=10)
                 try:
-                    resp = requests.get(target_url)
+                    resp = requests.get(target_url, timeout = 3)
                     fetched_at = time.time()
                     if resp.status_code != 200: raise ConnectionError('received non-200 code')
                     content, urls = Spider._parse_html(resp.text, target_domain)
                     self._queue_new_urls(urls, url_priority)
                     if content: on_content(target_url, content, latency)
-                except (requests.exceptions.ConnectionError, ConnectionError):
+                except (requests.exceptions.ConnectionError, ConnectionError, requests.exceptions.Timeout):
                     fetched_at = time.time()
                     errs += 1
                 urls_crawled += 1
-                
                 if target_queue.empty(): self._recycle_back_queue(target_domain, target_queue, fetched_at, k_weights)
                 else: self._queue_domain(fetched_at, target_domain)
                    
@@ -100,9 +107,8 @@ class Spider:
     def _initialize_crawl(self, seeds: set[str], k_weights: tuple[int], url_priority: Callable[[str], int]) -> None:
         self.front_queues = [Queue() for _ in range(len(k_weights))]
         for seed in seeds:
-            self.collected.add(seed)
+            self._mark_collected(seed)
             domain = Spider.get_domain(seed)
-            self._add_to_frontier(seed, url_priority(seed))
             if domain not in self.back_queues: self._initialize_new_domain(domain, Queue())
             self.back_queues[domain].put(seed)
         self.num_threads = min(ceil(len(self.back_queues) / 2), 64)  # per mercator reccomendations
@@ -134,7 +140,7 @@ class Spider:
 
     def _queue_new_urls(self, urls, url_priority):
         for new_url in urls - self.collected:
-            self.collected.add(new_url)
+            self._mark_collected(new_url)
             if Spider.get_domain(new_url) in self.back_queues:
                 self._add_to_frontier(new_url, url_priority(new_url))
 
@@ -174,11 +180,25 @@ class Spider:
                 self._initialize_new_domain(new_domain, target_queue)
                 break
 
-        
+    def _mark_collected(self, url: str) -> None:
+        self.collected.add(url if not url.endswith('/') else url[:-1])
+
+    @staticmethod
+    def _url_is_valid(url: str) -> bool:
+        valid = True
+        valid &= not re.fullmatch(url_blacklist, url)
+        valid &= not re.fullmatch(user_blacklist, url)
+        valid &= not re.fullmatch(action_blacklist, url)
+        return valid
+
     @staticmethod
     def _parse_html(text: str, target_domain: str) -> tuple[str, set[str]]:
         soup = BeautifulSoup(text, 'html.parser')
-        urls = {urljoin(target_domain, url.get('href')) for url in soup.findAll('a')}
+        urls = set()
+        for url in (urljoin(target_domain, url.get('href')).split('#')[0] for url in soup.findAll('a')):
+            normalized = url if not url.endswith('/') else url[:-1]
+            if Spider._url_is_valid(normalized.lower()):
+                urls.add(normalized)
         content = ' '.join(p.text for p in soup('p'))
         return content, urls
 
@@ -198,3 +218,39 @@ class Spider:
     @staticmethod
     def get_domain(url: str) -> str:
         return '{uri.scheme}://{uri.netloc}/'.format(uri=urlparse(url))
+
+
+    @staticmethod
+    def basic_crawl(dir_path: str, seeds: set[str], **kwargs):
+        spider = Spider()
+        data_buffer = Queue()
+        start_time = time.time()
+
+        def on_content(url, content, latency):
+            data_buffer.put((url, content))
+            print(f'{round(time.time() - start_time, 2)}: with l={round(latency, 5)}, {thread_id().replace("Thread", "T")} got "{url}"')
+
+        def buffer_to_file():
+            url, content = data_buffer.get(timeout = 1)
+            with open(osp.join(dir_path, str(uuid4()) + '.json'), 'w') as f:
+                json.dump({
+                    'name': url,
+                    'type': 'web',
+                    'content': content,
+                }, f)  # TODO cld add info about when crawled
+        
+        try:
+            t = Thread(target = lambda: spider.crawl(seeds, on_content, **kwargs), daemon = True)
+            t.start()
+            while data_buffer.empty(): sleep(0.1)  # wait until data is added
+            while spider.is_crawling:
+                try: buffer_to_file()
+                except Empty: pass
+            t.join()
+        except KeyboardInterrupt:
+            spider.signal_stop_crawl()
+
+        while not data_buffer.empty():
+            buffer_to_file()
+
+        return set(osp.join(dir_path, rel_path) for rel_path in os.listdir(dir_path))

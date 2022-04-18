@@ -4,42 +4,33 @@
 
 import os.path as osp
 import time
-from typing import Callable
-import numpy as np
 from collections import defaultdict
+from typing import Any
 from icecream import ic
+import json
 
 from core.preprocess import preprocess
-from core.utils import decode_b64
 
-
-def noop(_): return _
 
 class Document:
-    def __init__(
-            self,
-            path: str,
-            transform_name: Callable[[str], str] = noop,
-        ) -> None:
-        self.path = path
-        self.name = transform_name(osp.splitext(osp.basename(self.path))[0])
-        with open(path, 'r') as f:
-            tokens = preprocess(f.read())
-        
+    def __init__(self, name: str, type: str, raw_content: str) -> None:
+        self.type = type
+        self.name = name
         self.index = defaultdict(list)  # term to locs
+        self.created_at = time.time()
         
-        for i, term in enumerate(tokens):
+        for i, term in enumerate(preprocess(raw_content)):
             if term: self.index[term].append(i)
 
-def WebPage(path: str):
-    return Document(path, decode_b64)
+    @staticmethod
+    def from_txt(fpath: str) -> 'Document':
+        assert fpath.endswith('.txt')
+        with open(fpath, 'r') as f:
+            return Document(osp.splitext(osp.basename(fpath))[0], 'file', f.read())
 
-# class WebPage:
-#     def __init__(self, data) -> None:
-#         url, content = data
-#         self.name = url
-#         tokens = preprocess(content)
-#         self.index = defaultdict(list)  # term to locs
-        
-#         for i, term in enumerate(tokens):
-#             if term: self.index[term].append(i)
+    @staticmethod
+    def from_json(fpath: str) -> 'Document':
+        assert fpath.endswith('.json')
+        with open(fpath, 'r') as f:
+            data = json.load(f)
+            return Document(data['name'], data['type'], data['content'])

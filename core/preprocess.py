@@ -10,7 +10,7 @@ from functools import lru_cache
 from icecream import ic
 
 
-stemmer = PorterStemmer(); stemmer.stem('')  # loads stem
+stemmer = PorterStemmer(); stemmer.stem('')  # loads stemmer
 punc_ptn = re.compile(r'\W', re.ASCII)
 stops = set(stopwords.words('english'))
 

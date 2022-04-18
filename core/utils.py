@@ -4,11 +4,11 @@
 
 import os.path as osp, os
 from threading import current_thread
+from typing import Any
 import validators
 import psutil
 import time
 from icecream import ic
-import base64
 
 
 def get_mem_usage(precision: int = 2) -> float:
@@ -42,11 +42,3 @@ def is_url(url: str) -> bool:
 
 def thread_id():
     return current_thread().getName()
-    
-
-alt_chars = bytes('_-', 'utf-8')
-def encode_b64(text: str) -> str:
-    return base64.b64encode(bytes(text, 'utf-8'), alt_chars).decode('ascii')
-
-def decode_b64(text: str) -> str:  
-    return base64.b64decode(text.encode('ascii'), alt_chars).decode('utf-8')

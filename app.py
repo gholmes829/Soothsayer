@@ -11,13 +11,9 @@ from typing import Optional
 
 # ui
 import cmd2
-from tqdm import tqdm
 
 # general
 import multiprocessing as mp
-from threading import Thread
-from queue import Queue, Empty
-from time import sleep
 import tempfile
 
 # debugging
@@ -26,7 +22,7 @@ from icecream import ic
 # custom
 from core.utils import *
 from core.cmd_parsing import *
-from core.sources import Document, WebPage
+from core.sources import Document
 from core.indexing import InvertedIndex
 from core.querying import handle_vector_query, handle_boolean_query
 from core.crawling import Spider
@@ -41,84 +37,43 @@ class App(cmd2.Cmd):
         self.register_postloop_hook(self.cleanup)
         self.prompt = '>> '
         self.continuation_prompt = '... '
-        self.index = InvertedIndex.load('index.pkl') if osp.exists('index.pkl') else InvertedIndex()
-        self.poutput(f'Loaded index with {self.index.num_docs()} docs {self.index.num_terms()} terms.')
+        exists = osp.exists('index.gz')
+        self.index = InvertedIndex.load('index.gz') if exists else InvertedIndex()
+        self.poutput(f'{"Loaded" if exists else "Created"} index with {self.index.num_docs()} docs {self.index.num_terms()} terms.')
 
 
     @cmd2.with_argparser(run_index_local_parser)
     def do_index_local(self, args: argparse.Namespace) -> None:
-        self.handle_path(args.source)
+        source: str = args.source
+        doc_paths = {osp.join(source, child) for child in os.listdir(source) if child.endswith('.txt')}
+        self.index.update(Document.from_txt, doc_paths)
+        self.poutput('Saving index...')
+        self.index.save('index.gz')
+        self.poutput('Index saved.')
     complete_index_local = cmd2.Cmd.path_complete
 
     @cmd2.with_argparser(run_index_web_parser)
     def do_index_web(self, args: argparse.Namespace) -> None:
+        sources: list[str] = args.sources
+        dur: float = args.dur
         urls = set()
-        for source in args.sources:
-            if is_url(source): urls.add(source)
+        for source in sources:
+            if is_url(source):
+                urls.add(source)
             elif is_path(source):
                 with open(source, 'r') as f:
-                    for line in f:
-                        cleaned = line.strip()
-                        if cleaned and not cleaned.startswith('#'):
-                            assert is_url(cleaned)
-                            urls.add(cleaned)
+                    for clean_line in (line.split('#')[0].strip() for line in f):
+                        if clean_line: urls.add(clean_line)
             else: raise ValueError('must be url or path')
-        self.handle_url(urls, args.dur)
-    complete_index_web = cmd2.Cmd.path_complete
 
-    def handle_path(self, path: str) -> None:
-        doc_paths = {osp.join(path, child) for child in os.listdir(path) if child.endswith('.txt') and not osp.isdir(child)}
-        with mp.Pool() as p:
-            docs = [doc for doc in tqdm(
-                p.imap_unordered(Document, doc_paths),
-                total = len(doc_paths),
-                desc = 'Processing files'
-            )]
-        self.index.update(docs)
-        self.poutput('Saving index...')
-        self.index.save('index.pkl')
-        self.poutput('Index saved.')
-        
-
-    def handle_url(self, urls: list[str], crawl_duration: float = None) -> None:
-        spider = Spider()
-        data = Queue()
-        def on_content(url, content, latency):
-            data.put((url, content))
-            print(f'{time.time()}: with l={latency}, {thread_id()} collected "{url}"')
-
-        
         with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                t = Thread(target = lambda: spider.crawl(urls, on_content = on_content, timeout = crawl_duration), daemon = True)
-                t.start()
-                while data.empty(): sleep(0.1)
-                while spider.is_crawling:
-                    try:
-                        url, content = data.get(timeout = 1)
-                        try:
-                            with open(osp.join(tmp_dir, encode_b64(url) + '.txt'), 'w') as f: f.write(content)
-                        except OSError: pass  # TODO file name could be too long
-                    except Empty: pass
-                t.join()
-            except KeyboardInterrupt: spider.signal_stop_crawl()
+            saved_web_paths = Spider.basic_crawl(tmp_dir, urls, timeout = dur)
+            self.index.update(Document.from_json, saved_web_paths)
 
-            while not data.empty():
-                url, content = data.get()
-                with open(osp.join(tmp_dir, encode_b64(url) + '.txt'), 'w') as f: f.write(content)
-            
-            web_pages = set(osp.join(tmp_dir, rel_path) for rel_path in os.listdir(tmp_dir))
-
-            with mp.Pool() as p:
-                pages = [doc for doc in tqdm(
-                    p.imap_unordered(WebPage, web_pages),
-                    total = len(web_pages),
-                    desc = 'Processing pages'
-                )]
-        self.index.update(pages)
         self.poutput('Saving index...')
-        self.index.save('index.pkl')
+        self.index.save('index.gz')
         self.poutput('Index saved.')
+    complete_index_web = cmd2.Cmd.path_complete
 
 
     @cmd2.with_argparser(run_query_parser)
@@ -143,7 +98,8 @@ class App(cmd2.Cmd):
     def do_clear_index(self, _) -> None:
         """Clears and overwrites existing index."""
         self.index = InvertedIndex()
-        self.index.save('index.pkl')
+        self.index.save('index.gz')
+
 
     def default(self, statement: cmd2.Statement) -> Optional[bool]:
         """Treats default command as vector space query."""
