@@ -49,18 +49,28 @@ class InvertedIndex:
         self._compute_idfs()  # compute all idfs since N changed
         self._compute_doc_wieghts()
 
-    # def remove(self, documents: set[Document] = None) -> None:
-    #     assert documents
-    #     for doc_to_del in documents:
-    #         del self.doc_name_to_vec[doc_to_del.name]
-    #         for token in doc_to_del.index:
-    #             del self.index[token]['locs'][doc_to_del.name]
-    #             if not self.index[token]['locs']: self.vocab_set.remove(token)
-    #             self.index[token]['df'] -= 1
+    def remove(self, doc_names: set[str] = None) -> None:
+        assert doc_names
+        
+        for doc_name in doc_names:
+            tokens_to_remove = set()
+            for token, data in self.index.items():
+                if doc_name in data['docs']:
+                    del data['docs'][doc_name]
+                    if not data['docs']:
+                        tokens_to_remove.add(token)
+            while tokens_to_remove:
+                token = tokens_to_remove.pop()
+                del self.index[token]
 
-    #     self._compute_idfs()  # compute all idfs since N changed
-    #     for i, token in enumerate(sorted(list(self.index.keys()))): self.index[token]['idx'] = i
-    #     self._compute_doc_vecs()
+        # index position of tokens
+        for i, token in enumerate(sorted(list(self.index.keys()))):
+            self.index[token]['idx'] = i
+
+        # compute idfs and magnitude to normalize doc vectors
+        self._compute_idfs()  # compute all idfs since N changed
+        self._compute_doc_wieghts()
+
 
     def save(self, path: str) -> None:
         # with open(path, 'wb') as f:
@@ -106,13 +116,6 @@ class InvertedIndex:
                 ):
                 for token, weight in token_weights.items():
                     self.index[token]['docs'][doc_name]['weight'] = weight
-
-
-            # self.doc_magnitudes = {doc_name: magnitude for doc_name, magnitude in tqdm(
-            #     p.imap_unordered(InvertedIndex._compute_doc_magnitude_star, zip(repeat(simplified_index), joined_docs), chunksize = 250),
-            #     total = len(joined_docs),
-            #     desc = 'Generating source data'
-            # )}
 
          
     def __len__(self):
