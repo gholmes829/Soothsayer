@@ -4,27 +4,30 @@
 
 from typing import Callable
 from icecream import ic
-from collections import defaultdict
 import multiprocessing as mp
 import numpy as np
-import pickle
+from collections import defaultdict
+import compress_pickle
 from tqdm import tqdm
 from itertools import repeat
 
 from core.sources import Document
-from core.utils import DefaultDict
+from core.utils import DefaultReadDict, Timer, MemoryMonitor
 
+
+def forward_index_default():
+    return {'weight': 0, 'locs': DefaultReadDict(list)}
 
 def index_item_default():
-    return {'idf': None, 'locs': DefaultDict(list), 'idx': None}
+    return {'idx': None, 'idf': None, 'docs': defaultdict(forward_index_default)}
 
 class InvertedIndex:
     def __init__(self) -> None:
         self.index = defaultdict(index_item_default)
-        self.doc_magnitudes = defaultdict(int)
-        # self.doc_name_to_vec = {}
+        self.docs = set()
 
     def update(self, gen_doc: Callable, doc_sources: set[str] = None) -> None:
+        # create documents
         with mp.Pool() as p:
             documents: list[Document] = [doc for doc in tqdm(
                 p.imap_unordered(gen_doc, doc_sources),
@@ -34,90 +37,83 @@ class InvertedIndex:
 
         assert documents
         for doc_to_update in documents:
-            for term, locs in doc_to_update.index.items():
-                self.index[term]['locs'][doc_to_update.name] = locs
-                self.index[term]['df'] = len(self[term]['locs'])
+            self.docs.add(doc_to_update.name)
+            for token, locs in doc_to_update.index.items():
+                self.index[token]['docs'][doc_to_update.name]['locs'] = locs
 
-        # self._compute_idfs()  # compute all idfs since N changed
-        for term, locs in self.index.items():
-            self.index[term]['idf'] = np.log10(len(documents) / len(locs))
+        # index position of tokens
+        for i, token in enumerate(sorted(list(self.index.keys()))):
+            self.index[token]['idx'] = i
 
-        for i, term in enumerate(sorted(list(self.index.keys()))): self.index[term]['idx'] = i
-
-        self._compute_doc_magnitudes(documents)
-
-        # self._compute_doc_vecs()
+        # compute idfs and magnitude to normalize doc vectors
+        self._compute_idfs()  # compute all idfs since N changed
+        self._compute_doc_wieghts()
 
     # def remove(self, documents: set[Document] = None) -> None:
     #     assert documents
     #     for doc_to_del in documents:
     #         del self.doc_name_to_vec[doc_to_del.name]
-    #         for term in doc_to_del.index:
-    #             del self.index[term]['locs'][doc_to_del.name]
-    #             if not self.index[term]['locs']: self.vocab_set.remove(term)
-    #             self.index[term]['df'] -= 1
+    #         for token in doc_to_del.index:
+    #             del self.index[token]['locs'][doc_to_del.name]
+    #             if not self.index[token]['locs']: self.vocab_set.remove(token)
+    #             self.index[token]['df'] -= 1
 
     #     self._compute_idfs()  # compute all idfs since N changed
-    #     for i, term in enumerate(sorted(list(self.index.keys()))): self.index[term]['idx'] = i
+    #     for i, token in enumerate(sorted(list(self.index.keys()))): self.index[token]['idx'] = i
     #     self._compute_doc_vecs()
 
     def save(self, path: str) -> None:
-        with open(path, 'wb') as f:
-            pickle.dump(self, f)
+        # with open(path, 'wb') as f:
+        compress_pickle.dump(self, path, compression='gzip')
 
     @staticmethod
     def load(path: str) -> 'InvertedIndex':
-        with open(path, 'rb') as f:
-            return pickle.load(f)
+        # with open(path, 'rb') as f:
+        return compress_pickle.load(path, compression='gzip')
 
-    def num_docs(self) -> int:
-        return len(self.doc_magnitudes)
+    def _compute_idfs(self) -> None:
+        for data in self.index.values():
+            data['idf'] = np.log10(len(self.docs) / len(data['docs']))
 
-    def num_terms(self) -> int:
-        return len(self.index)
+    @staticmethod
+    def _compute_doc_weights(simplified_index: list, doc_name: str) -> tuple[str, float]:
+        accum_norm = 0
+        weights = {}
+        for token, tf, idf in simplified_index:
+            tf_idf = tf[doc_name] * idf
+            if tf_idf:
+                weights[token] = tf_idf
+                accum_norm += tf_idf ** 2
+        norm = np.sqrt(accum_norm)
+        return doc_name, {token: weight / norm for token, weight in weights.items()}
+    
+    @staticmethod
+    def _compute_doc_weights_star(args) -> tuple[str, float]:
+        return InvertedIndex._compute_doc_weights(*args)
 
-    def get_doc_names(self) -> set[str]:
-        return set(self.doc_magnitudes.keys()) # set(self.doc_name_to_vec.keys())
-
-    # def _compute_idfs(self) -> None:
-    #     for term, locs in self.index.items():
-    #         self.index[term]['idf'] = np.log10(len(self.doc_names) / len(locs))
-
-    # def _compute_doc_magnitude(self, doc: Document) -> tuple[str, float]:
-    #     magnitude = 0
-    #     for token in doc.index:
-    #         magnitude += np.square(len(self.index[token]['locs'][doc.name]) * self.index[token]['idf'])
-    #     return np.sqrt(magnitude) or 1
+    @staticmethod
+    def get_doc_tf(token_data: dict) -> DefaultReadDict:
+        return DefaultReadDict(int, **{doc_name: len(doc_data['locs']) for doc_name, doc_data in token_data['docs'].items()})
 
 
-    # def _compute_doc_magnitudes(self, documents: list[Document]) -> None:
-    #         for doc in tqdm(documents, desc = 'Generating source vectors'):
-    #             self.doc_magnitudes[doc.name] = self._compute_doc_magnitude(doc)
-
-    def _compute_doc_magnitude(self, doc_name: str) -> float:
-        magnitude = 0
-        for token in self.index.keys():
-            magnitude += (len(self.index[token]['locs'][doc_name]) * self.index[token]['idf']) ** 2
-        return doc_name, np.sqrt(magnitude)
-
-    def _compute_doc_magnitudes(self, new_documents: list[Document]) -> None:
-        joined_docs = set(self.doc_magnitudes.keys()) | set(doc.name for doc in new_documents)
-        self.doc_magnitudes.clear()
-
+    def _compute_doc_wieghts(self) -> None:
+        simplified_index = [(token, InvertedIndex.get_doc_tf(token_data), token_data['idf']) for token, token_data in self.index.items()]
         with mp.Pool() as p:
-            self.doc_magnitudes = {doc: magnitude for doc, magnitude in tqdm(
-                p.imap_unordered(self._compute_doc_magnitude, joined_docs, chunksize = 250),
-                total = len(joined_docs),
-                desc = 'Generating source data'
-            )}
+            for doc_name, token_weights in tqdm(
+                    p.imap_unordered(InvertedIndex._compute_doc_weights_star, zip(repeat(simplified_index), self.docs), chunksize=250),
+                    total = len(self.docs),
+                    desc = 'Generating vector data'
+                ):
+                for token, weight in token_weights.items():
+                    self.index[token]['docs'][doc_name]['weight'] = weight
 
-        # for doc_name in tqdm(joined_docs, desc = 'Generating source data'):
-        #     for token in self.index:
-        #         # if doc_name in self.index[token]['locs']:
-        #         self.doc_magnitudes[doc_name] += (len(self.index[token]['locs'][doc_name]) * self.index[token]['idf']) ** 2
 
-        # for doc_name, sqrd_sum in self.doc_magnitudes.items():
-        #     self.doc_magnitudes[doc_name] = np.sqrt(sqrd_sum)
+            # self.doc_magnitudes = {doc_name: magnitude for doc_name, magnitude in tqdm(
+            #     p.imap_unordered(InvertedIndex._compute_doc_magnitude_star, zip(repeat(simplified_index), joined_docs), chunksize = 250),
+            #     total = len(joined_docs),
+            #     desc = 'Generating source data'
+            # )}
+
          
     def __len__(self):
         return len(self.index)

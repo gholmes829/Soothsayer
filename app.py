@@ -38,18 +38,19 @@ class App(cmd2.Cmd):
         self.continuation_prompt = '... '
         exists = osp.exists('index.gz')
         self.index = InvertedIndex.load('index.gz') if exists else InvertedIndex()
-        self.poutput(f'{"Loaded" if exists else "Created"} index with {self.index.num_docs()} docs {self.index.num_terms()} terms.')
+        self.poutput(f'{"Loaded" if exists else "Created"} index with {len(self.index.docs)} docs {len(self.index)} terms.')
 
 
     @cmd2.with_argparser(run_index_local_parser)
     def do_index_local(self, args: argparse.Namespace) -> None:
         source: str = args.source
-        doc_paths = {osp.join(source, child) for child in os.listdir(source) if child.endswith('.txt')}
-        self.index.update(Document.from_txt, doc_paths)
+        doc_paths = {osp.join(source, child) for child in os.listdir(source) if child.split('.')[-1] in {'json', 'txt'}}
+        self.index.update(Document.make, doc_paths)
         self.poutput('Saving index...')
         self.index.save('index.gz')
         self.poutput('Index saved.')
     complete_index_local = cmd2.Cmd.path_complete
+
 
     @cmd2.with_argparser(run_index_web_parser)
     def do_index_web(self, args: argparse.Namespace) -> None:

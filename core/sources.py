@@ -34,3 +34,12 @@ class Document:
         with open(fpath, 'r') as f:
             data = json.load(f)
             return Document(data['name'], data['type'], data['content'])
+
+    @staticmethod
+    def make(fpath: str) -> 'Document':
+        return Document._types[osp.splitext(osp.basename(fpath))[1]](fpath)
+
+Document._types = {
+    '.txt': Document.from_txt,
+    '.json': Document.from_json,
+}

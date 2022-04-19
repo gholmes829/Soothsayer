@@ -9,10 +9,11 @@ import validators
 import psutil
 import time
 from time import sleep
+import base64
 from icecream import ic
 
 
-class DefaultDict(dict):
+class DefaultReadDict(dict):
     def __init__(self, default_factory: Callable, **kwargs: dict):
         super().__init__(**kwargs)
         self.default_factory = default_factory
@@ -75,3 +76,10 @@ def is_url(url: str) -> bool:
 
 def thread_id():
     return current_thread().getName()
+
+
+def encode_b64(text: str) -> str:
+    return base64.b64encode(bytes(text, 'utf-8')).decode('ascii')
+
+def decode_b64(text: str) -> str:  
+    return base64.b64decode(text.encode('ascii')).decode('utf-8')
