@@ -1,6 +1,6 @@
 .DS_Store
-test_input_docs/
-test_input_web/
+test_input_books/
+test_input_web_v1/
 index.gz
 index.gz
 test_urls.txt

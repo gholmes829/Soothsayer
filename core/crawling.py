@@ -237,7 +237,7 @@ class Spider:
                     'name': url,
                     'type': 'web',
                     'content': content,
-                }, f)  # TODO cld add info about when crawled
+                }, f)  # TODO cld add info about crawl timestamp
         
         try:
             t = Thread(target = lambda: spider.crawl(seeds, on_content, **kwargs), daemon = True)

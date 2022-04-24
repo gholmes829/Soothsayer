@@ -16,7 +16,7 @@ from core.utils import DefaultReadDict, Timer, MemoryMonitor
 
 
 def forward_index_default():
-    return {'weight': 0, 'locs': DefaultReadDict(list)}
+    return {'weight': 0, 'locs': []}
 
 def index_item_default():
     return {'idx': None, 'idf': None, 'docs': defaultdict(forward_index_default)}
@@ -29,11 +29,11 @@ class InvertedIndex:
     def update(self, gen_doc: Callable, doc_sources: set[str] = None) -> None:
         # create documents
         with mp.Pool() as p:
-            documents: list[Document] = [doc for doc in tqdm(
+            documents: list[Document] = list(tqdm(
                 p.imap_unordered(gen_doc, doc_sources),
                 total = len(doc_sources),
                 desc = 'Processing files'
-            )]
+            ))
 
         assert documents
         for doc_to_update in documents:
