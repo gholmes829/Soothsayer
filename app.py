@@ -23,7 +23,7 @@ from core.utils import *
 from core.cmd_parsing import *
 from core.sources import Document
 from core.indexing import InvertedIndex
-from core.querying import handle_vector_query, handle_boolean_query
+from core.querying import run_query
 from core.crawling import Spider
 
 # static paths
@@ -42,7 +42,7 @@ class App(cmd2.Cmd):
 
 
     @cmd2.with_argparser(run_index_local_parser)
-    def do_index_local(self, args: argparse.Namespace) -> None:
+    def do_local_index(self, args: argparse.Namespace) -> None:
         source: str = args.source
         doc_paths = {osp.join(source, child) for child in os.listdir(source) if child.split('.')[-1] in {'json', 'txt'}}
         self.index.update(Document.make, doc_paths)
@@ -53,7 +53,7 @@ class App(cmd2.Cmd):
 
 
     @cmd2.with_argparser(run_index_web_parser)
-    def do_index_web(self, args: argparse.Namespace) -> None:
+    def do_crawl_web(self, args: argparse.Namespace) -> None:
         sources: list[str] = args.sources
         dur: float = args.dur
         urls = set()
@@ -78,17 +78,13 @@ class App(cmd2.Cmd):
 
     @cmd2.with_argparser(run_query_parser)
     def do_query(self, args: argparse.Namespace) -> None:
-        query_type = args.query_type
-        query = ' '.join(args.query)
-        self.handle_query(query_type, query, args.top_k)
+        self.handle_query(' '.join(args.query), args.top_k)
 
 
-    def handle_query(self, query_type: str, query: str, top_k: int = None) -> None:
+    def handle_query(self, query: str, top_k: int = None) -> None:
+        ic(query, top_k)
         with Timer() as t:
-            most_relevant = {
-                'boolean': handle_boolean_query,
-                'vector':  handle_vector_query
-            }[query_type](self.index, query, top_k = top_k or 10)
+            most_relevant = run_query(self.index, query, top_k = top_k or 10)
         if not most_relevant: return self.poutput('\nNo good matches.\n')
         for i, (name, score) in enumerate(most_relevant, 1):
             self.poutput(f'{i}) {name}: {round(100 * score, 2)}%')
@@ -103,7 +99,7 @@ class App(cmd2.Cmd):
 
     def default(self, statement: cmd2.Statement) -> Optional[bool]:
         """Treats default command as vector space query."""
-        self.handle_query('vector', statement.raw)
+        self.handle_query(statement.raw)
 
     def cleanup(self) -> None:
         pass

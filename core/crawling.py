@@ -3,6 +3,7 @@ TODO could add option to prevent search going to parent of seed path
 """
 
 from threading import Thread, Event, Timer as TimerTrigger, Condition
+import os.path as osp, os
 from queue import Queue, Empty
 from typing import Any, Callable
 import requests
@@ -17,7 +18,7 @@ from uuid import uuid4
 import json
 import random
 
-from core.utils import *
+from core.utils import thread_id, Timer
 
 
 url_blacklist = re.compile(r'.*[.](jpg|jpeg|png|mp3|svg|mp4|gif|wav)')
@@ -86,7 +87,8 @@ class Spider:
                 latency = time.time() - ready_time
                 latency_sum += latency
                 target_queue = self.back_queues[target_domain]
-                target_url = target_queue.get(timeout=10)
+                try: target_url = target_queue.get(timeout=3)
+                except Empty: continue
                 try:
                     resp = requests.get(target_url, timeout = 3)
                     fetched_at = time.time()

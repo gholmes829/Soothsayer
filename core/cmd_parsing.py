@@ -45,11 +45,6 @@ run_index_local_parser.add_argument(
 # QUERY
 run_query_parser = cmd2.Cmd2ArgumentParser(description='run a query')
 run_query_parser.add_argument(
-    'query_type',
-    choices = {'vector', 'boolean'},
-    help = 'run query and return relevant sources'
-)
-run_query_parser.add_argument(
     'query',
     nargs = '+',
     help = 'query to return relevant sources for'
