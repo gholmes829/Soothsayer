@@ -2,7 +2,7 @@
 
 """
 
-from nltk.stem import PorterStemmer
+from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 from unidecode import unidecode
 import re
@@ -10,14 +10,14 @@ from functools import lru_cache
 from icecream import ic
 
 
-stemmer = PorterStemmer(); stemmer.stem('')  # loads stemmer
+lemmatizer = WordNetLemmatizer(); lemmatizer.lemmatize('')  # loads lemmatizer
 punc_ptn = re.compile(r'\W', re.ASCII)
 stops = set(stopwords.words('english'))
 
 
 @lru_cache(maxsize=2**16)
-def stem(token: str) -> str:
-    return stemmer.stem(token)
+def lemmatize(token: str) -> str:
+    return lemmatizer.lemmatize(token)
 
 
 def valid_token(token: str) -> bool:
@@ -25,7 +25,7 @@ def valid_token(token: str) -> bool:
 
 
 def normalize(token: str) -> str:
-    return stem(token.strip().lower())
+    return lemmatize(token.strip().lower())
 
 
 def resolve_token(token: str) -> str:

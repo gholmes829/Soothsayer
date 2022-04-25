@@ -1,7 +1,5 @@
 .DS_Store
-test_input_books/
-test_input_web_v1/
-index.gz
+data/*
 index.gz
 test_urls.txt
 

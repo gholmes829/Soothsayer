@@ -9,7 +9,7 @@ from icecream import ic
 from core.preprocess import preprocess
 from core.indexing import InvertedIndex
 
-def smooth(x, smoothness: float = 1):
+def smooth(x: np.ndarray, smoothness: float = 1) -> np.ndarray:
     return 2 * (1 / (1 + np.exp(-x / smoothness)) - 0.5)
 
 
@@ -90,10 +90,9 @@ def run_query(
     query_vector = make_query_vector(index, sorted_query_tokens)
     proximity_score_vector = make_proximity_score_vector(index, sorted_query_tokens, candidate_doc_names)
     relevance_vector = (doc_matrix @ query_vector)
-    scores = proximity_weight * proximity_score_vector + relevance_weight * relevance_vector
-
+    scores = (proximity_weight * proximity_score_vector + relevance_weight * relevance_vector) / 2
     sorted_idx = np.argsort(scores)[::-1]
     return tuple(zip(
         candidate_doc_names_array[sorted_idx][:top_k],
-        smooth(np.array(scores[sorted_idx][:top_k]), 0.05)
+        smooth(np.array(scores[sorted_idx][:top_k]), 0.1),
     ))

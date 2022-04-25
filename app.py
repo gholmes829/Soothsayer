@@ -13,6 +13,7 @@ from typing import Optional
 import cmd2
 
 # general
+from contextlib import nullcontext
 import tempfile
 
 # debugging
@@ -42,7 +43,7 @@ class App(cmd2.Cmd):
 
 
     @cmd2.with_argparser(run_index_local_parser)
-    def do_local_index(self, args: argparse.Namespace) -> None:
+    def do_index_local(self, args: argparse.Namespace) -> None:
         source: str = args.source
         doc_paths = {osp.join(source, child) for child in os.listdir(source) if child.split('.')[-1] in {'json', 'txt'}}
         self.index.update(Document.make, doc_paths)
@@ -56,6 +57,7 @@ class App(cmd2.Cmd):
     def do_crawl_web(self, args: argparse.Namespace) -> None:
         sources: list[str] = args.sources
         dur: float = args.dur
+        output: str = args.output
         urls = set()
         for source in sources:
             if is_url(source):
@@ -66,14 +68,16 @@ class App(cmd2.Cmd):
                         if clean_line: urls.add(clean_line)
             else: raise ValueError('must be url or path')
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        dir_context = nullcontext(output) if output else tempfile.TemporaryDirectory()
+        with dir_context as tmp_dir:
             saved_web_paths = Spider.basic_crawl(tmp_dir, urls, timeout = dur)
+            sleep(0.1)
             self.index.update(Document.from_json, saved_web_paths)
 
         self.poutput('Saving index...')
         self.index.save('index.gz')
         self.poutput('Index saved.')
-    complete_index_web = cmd2.Cmd.path_complete
+    complete_crawl_web = cmd2.Cmd.path_complete
 
 
     @cmd2.with_argparser(run_query_parser)

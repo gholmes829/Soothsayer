@@ -35,6 +35,13 @@ run_index_web_parser.add_argument(
     help = 'how long to crawl for in secs',
 )
 
+run_index_web_parser.add_argument(
+    '--output',
+    '-o',
+    type = validate_path,
+    help = 'dump crawled data to persistent dir',
+)
+
 run_index_local_parser = cmd2.Cmd2ArgumentParser(description = 'evaluate source and update index')
 run_index_local_parser.add_argument(
     'source',

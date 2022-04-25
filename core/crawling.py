@@ -1,11 +1,12 @@
 """
-TODO could add option to prevent search going to parent of seed path
+NOTE could add option to prevent search going to parent of seed path
+TODO replace content_blacklist with save and load front and back queues
 """
 
 from threading import Thread, Event, Timer as TimerTrigger, Condition
 import os.path as osp, os
 from queue import Queue, Empty
-from typing import Any, Callable
+from typing import Any, Callable, TextIO
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -50,7 +51,7 @@ class Spider:
             k_weights: tuple[float] = (1,),
             timeout: float = None,
         ) -> None:
-        self._initialize_crawl(seeds, k_weights, url_priority)
+        self._initialize_crawl(seeds, k_weights)
         workers = [self._make_worker(on_content, url_priority, k_weights) for _ in range(self.num_threads)]
         self.is_crawling = True
         for t in workers: t.start()
@@ -90,12 +91,13 @@ class Spider:
                 try: target_url = target_queue.get(timeout=3)
                 except Empty: continue
                 try:
-                    resp = requests.get(target_url, timeout = 3)
+                    resp = requests.get(target_url, timeout=3)
                     fetched_at = time.time()
                     if resp.status_code != 200: raise ConnectionError('received non-200 code')
                     content, urls = Spider._parse_html(resp.text, target_domain)
                     self._queue_new_urls(urls, url_priority)
-                    if content: on_content(target_url, content, latency)
+                    if content:
+                        on_content(target_url, content, latency)
                 except (requests.exceptions.ConnectionError, ConnectionError, requests.exceptions.Timeout):
                     fetched_at = time.time()
                     errs += 1
@@ -106,14 +108,14 @@ class Spider:
         ic(thread_id(), errs, urls_crawled, latency_sum, float(t))
 
 
-    def _initialize_crawl(self, seeds: set[str], k_weights: tuple[int], url_priority: Callable[[str], int]) -> None:
+    def _initialize_crawl(self, seeds: set[str], k_weights: tuple[int]) -> None:
         self.front_queues = [Queue() for _ in range(len(k_weights))]
         for seed in seeds:
             self._mark_collected(seed)
             domain = Spider.get_domain(seed)
             if domain not in self.back_queues: self._initialize_new_domain(domain, Queue())
             self.back_queues[domain].put(seed)
-        self.num_threads = min(ceil(len(self.back_queues) / 2), 64)  # per mercator reccomendations
+        self.num_threads = min(ceil(len(self.back_queues) / 2), 64)  # approximately mercator reccomendations
 
 
     def _add_to_frontier(self, url: str, priority: int) -> None:
@@ -132,7 +134,7 @@ class Spider:
 
     def _profile_domain(self, url: str) -> dict:
         return {
-            'crawl_delay': 1,  # TODO update with actual robot values
+            'crawl_delay': 1,  # NOTE update with actual robot values, currently is conservative to be polite
         }
 
 
@@ -232,27 +234,35 @@ class Spider:
             data_buffer.put((url, content))
             print(f'{round(time.time() - start_time, 2)}: with l={round(latency, 5)}, {thread_id().replace("Thread", "T")} got "{url}"')
 
+        url_repo_f: TextIO = None
+        dump_path = osp.join(dir_path, 'dump')
+        url_repo_path = osp.join(dir_path, 'url_repo.txt')
+        try: os.mkdir(dump_path)
+        except FileExistsError: pass
         def buffer_to_file():
             url, content = data_buffer.get(timeout = 1)
-            with open(osp.join(dir_path, str(uuid4()) + '.json'), 'w') as f:
+            with open(osp.join(dir_path, 'dump', str(uuid4()) + '.json'), 'w') as f:
                 json.dump({
                     'name': url,
                     'type': 'web',
                     'content': content,
-                }, f)  # TODO cld add info about crawl timestamp
-        
-        try:
-            t = Thread(target = lambda: spider.crawl(seeds, on_content, **kwargs), daemon = True)
-            t.start()
-            while data_buffer.empty(): sleep(0.1)  # wait until data is added
-            while spider.is_crawling:
-                try: buffer_to_file()
-                except Empty: pass
-            t.join()
-        except KeyboardInterrupt:
-            spider.signal_stop_crawl()
+                }, f)  # NOTE cld add info about crawl timestamp
+            url_repo_f.write(url + '\n')
+            url_repo_f.flush()
 
-        while not data_buffer.empty():
-            buffer_to_file()
+        with open(url_repo_path, 'a') as url_repo_f:
+            try:
+                t = Thread(target = lambda: spider.crawl(seeds, on_content, **kwargs), daemon = True)
+                t.start()
+                while data_buffer.empty(): sleep(0.1)  # wait until data is added
+                while spider.is_crawling:
+                    try: buffer_to_file()
+                    except Empty: pass
+                t.join()
+            except KeyboardInterrupt:
+                spider.signal_stop_crawl()
 
-        return set(osp.join(dir_path, rel_path) for rel_path in os.listdir(dir_path))
+            while not data_buffer.empty():
+                buffer_to_file()
+
+        return set(osp.join(dump_path, rel_path) for rel_path in os.listdir(dump_path))
